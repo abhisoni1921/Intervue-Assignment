@@ -5,17 +5,31 @@ import cors from 'cors';
 
 const app = express();
 const server = createServer(app);
+
+// ✅ Allow frontend origins (add your deployed frontend URL here)
+const allowedOrigins = [
+  "http://localhost:5173", // For local development
+  "https://intervue-assignment-frontend.vercel.app", // Example frontend on Vercel
+  "https://your-frontend.onrender.com" // Optional: if frontend is on Render
+];
+
+// ✅ Apply CORS to Express
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+
+app.use(express.json());
+
 const io = new Server(server, {
   cors: {
-    origin: "https://intervue-assignment-green.vercel.app/",
-    methods: ["GET", "POST"]
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-app.use(cors());
-app.use(express.json());
-
-// In-memory storage for polls and students
+// In-memory storage
 let currentPoll = null;
 let students = new Map();
 let pollHistory = [];
@@ -24,59 +38,50 @@ let pollResponses = new Map();
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // Student registration
   socket.on('register_student', (data) => {
     const { name } = data;
-    
+
     const existingStudent = Array.from(students.values()).find(
       student => student.name === name && student.connected
     );
-    
+
     if (existingStudent) {
       socket.emit('registration_error', { message: 'Name already taken' });
       return;
     }
 
-    const newStudent = { 
-      id: socket.id, 
-      name, 
+    const newStudent = {
+      id: socket.id,
+      name,
       connected: true,
       joinedAt: new Date()
     };
 
     students.set(socket.id, newStudent);
     socket.emit('registration_success', { name });
-    
-    // Send updated student list to all clients
+
     io.emit('students_update', {
       count: students.size,
       students: Array.from(students.values())
     });
 
-    // Send current poll if active
     if (currentPoll && currentPoll.status === 'active') {
       socket.emit('new_poll', currentPoll);
     }
   });
 
-  // Add get students list handler
   socket.on('get_students_list', () => {
     socket.emit('students_list', {
       students: Array.from(students.values())
     });
   });
 
-  // Update kick student handler
   socket.on('kick_student', ({ studentId }) => {
     const student = students.get(studentId);
     if (student) {
-      // Notify the student being kicked
       io.to(studentId).emit('kicked');
-      
-      // Remove student from storage
       students.delete(studentId);
-      
-      // Update all clients with new student list
+
       io.emit('students_update', {
         count: students.size,
         students: Array.from(students.values())
@@ -86,7 +91,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Teacher creates a new poll
   socket.on('create_poll', (pollData) => {
     if (currentPoll && currentPoll.status === 'active') {
       socket.emit('poll_error', { message: 'A poll is already active' });
@@ -108,13 +112,10 @@ io.on('connection', (socket) => {
     };
 
     pollResponses.clear();
-
-    // Broadcast to all students
     io.emit('new_poll', currentPoll);
-    
-    // Auto-close poll after time limit
+
     setTimeout(() => {
-      if (currentPoll && currentPoll.id === currentPoll.id && currentPoll.status === 'active') {
+      if (currentPoll && currentPoll.status === 'active') {
         closePoll();
       }
     }, currentPoll.timeLimit * 1000);
@@ -122,7 +123,6 @@ io.on('connection', (socket) => {
     console.log('Poll created:', currentPoll.question);
   });
 
-  // Student submits answer
   socket.on('submit_answer', (data) => {
     if (!currentPoll || currentPoll.status !== 'active') {
       socket.emit('answer_error', { message: 'No active poll' });
@@ -148,18 +148,15 @@ io.on('connection', (socket) => {
       timestamp: new Date()
     });
 
-    // Update results
     currentPoll.results[answer]++;
     currentPoll.responses[socket.id] = answer;
 
-    // Broadcast updated results
     io.emit('poll_results_update', {
       results: currentPoll.results,
       totalResponses: pollResponses.size,
       totalStudents: students.size
     });
 
-    // Check if all students have responded
     if (pollResponses.size >= students.size) {
       setTimeout(() => closePoll(), 1000);
     }
@@ -167,12 +164,10 @@ io.on('connection', (socket) => {
     console.log(`Answer submitted: ${student.name} - ${answer}`);
   });
 
-  // Teacher closes poll
   socket.on('close_poll', () => {
     closePoll();
   });
 
-  // Get current poll status
   socket.on('get_poll_status', () => {
     socket.emit('poll_status', {
       currentPoll,
@@ -181,7 +176,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Disconnect handler
   socket.on('disconnect', () => {
     const student = students.get(socket.id);
     if (student) {
@@ -201,14 +195,12 @@ function closePoll() {
 
   currentPoll.status = 'closed';
   currentPoll.closedAt = new Date();
-  
-  // Add to history
+
   pollHistory.push({
     ...currentPoll,
     responses: Array.from(pollResponses.values())
   });
 
-  // Broadcast final results
   io.emit('poll_closed', {
     poll: currentPoll,
     finalResults: currentPoll.results,
@@ -221,5 +213,5 @@ function closePoll() {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });

@@ -6,21 +6,42 @@ export const useSocket = () => {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3001');
-    setSocket(newSocket);
+    const newSocket = io('https://intervue-assignment-m134.onrender.com', {
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  transports: ['websocket', 'polling'],
+});
+
 
     newSocket.on('connect', () => {
       setConnected(true);
       console.log('Connected to server');
     });
 
-    newSocket.on('disconnect', () => {
+    newSocket.on('connect_error', (error) => {
+      console.error('Connection error:', error);
       setConnected(false);
-      console.log('Disconnected from server');
     });
 
+    newSocket.on('disconnect', (reason) => {
+      console.log('Disconnected:', reason);
+      setConnected(false);
+    });
+
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('Reconnected after', attemptNumber, 'attempts');
+      setConnected(true);
+    });
+
+    setSocket(newSocket);
+
     return () => {
-      newSocket.close();
+      if (newSocket) {
+        newSocket.close();
+      }
     };
   }, []);
 
